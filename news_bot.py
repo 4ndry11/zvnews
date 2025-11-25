@@ -1,6 +1,7 @@
 """
 Бот мониторинга финансовых новостей
 Автоматически ищет новости через GNews API и отправляет в Telegram на украинском языке
+Любой пользователь может подписаться через /start
 """
 import json
 import urllib.request
@@ -11,15 +12,16 @@ import time
 import logging
 import sys
 import os
+import threading
 
 
 # ==================== КОНФИГУРАЦИЯ ====================
-GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", )
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "60"))
 CHECK_HOURS = int(os.getenv("CHECK_HOURS", "1"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+SUBSCRIBERS_FILE = "subscribers.json"
 
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
@@ -33,6 +35,59 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+# ==================== УПРАВЛЕНИЕ ПОДПИСЧИКАМИ ====================
+class SubscriberManager:
+    """Управление подписчиками бота"""
+
+    def __init__(self, filename: str = SUBSCRIBERS_FILE):
+        self.filename = filename
+        self.subscribers = self.load_subscribers()
+
+    def load_subscribers(self) -> set:
+        """Загрузить список подписчиков из файла"""
+        try:
+            if os.path.exists(self.filename):
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    subscribers = set(data.get('subscribers', []))
+                    logger.info(f"Загружено {len(subscribers)} подписчиков")
+                    return subscribers
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке подписчиков: {str(e)}")
+        return set()
+
+    def save_subscribers(self):
+        """Сохранить список подписчиков в файл"""
+        try:
+            with open(self.filename, 'w', encoding='utf-8') as f:
+                json.dump({'subscribers': list(self.subscribers)}, f, ensure_ascii=False, indent=2)
+            logger.info(f"Сохранено {len(self.subscribers)} подписчиков")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении подписчиков: {str(e)}")
+
+    def add_subscriber(self, chat_id: str) -> bool:
+        """Добавить подписчика"""
+        if chat_id not in self.subscribers:
+            self.subscribers.add(chat_id)
+            self.save_subscribers()
+            logger.info(f"Новый подписчик: {chat_id}")
+            return True
+        return False
+
+    def remove_subscriber(self, chat_id: str) -> bool:
+        """Удалить подписчика"""
+        if chat_id in self.subscribers:
+            self.subscribers.remove(chat_id)
+            self.save_subscribers()
+            logger.info(f"Подписчик удален: {chat_id}")
+            return True
+        return False
+
+    def get_subscribers(self) -> list:
+        """Получить список всех подписчиков"""
+        return list(self.subscribers)
 
 
 # ==================== КЛАСС ДЛЯ ПЕРЕВОДА ====================
@@ -96,8 +151,6 @@ class NewsFetcher:
         self.api_key = api_key
         self.base_url = "https://gnews.io/api/v4"
         self.processed_urls = set()
-
-        # Запросы по темам
         self.queries = [
             {"query": "bankruptcy", "lang": "en", "theme": "Банкрутство"},
             {"query": "банкрутство", "lang": "uk", "theme": "Банкрутство"},
@@ -124,27 +177,13 @@ class NewsFetcher:
             url += f"&to={to_date}"
 
         try:
-            start_time = time.time()
             with urllib.request.urlopen(url) as response:
                 data = json.loads(response.read().decode("utf-8"))
-                elapsed = time.time() - start_time
-                logger.info(f"Запрос [{lang}] {query}: найдено {data.get('totalArticles', 0)}")
-                return data, elapsed, None
-        except urllib.error.HTTPError as e:
-            elapsed = time.time() - start_time
-            error_msg = f"HTTP {e.code}: {e.reason}"
-            try:
-                error_body = json.loads(e.read().decode('utf-8'))
-                if 'errors' in error_body:
-                    error_msg += f" - {error_body['errors']}"
-            except:
-                pass
-            logger.error(f"Ошибка HTTP при запросе {query}: {error_msg}")
-            return None, elapsed, error_msg
+                logger.info(f"[{lang}] {query}: {data.get('totalArticles', 0)}")
+                return data
         except Exception as e:
-            elapsed = time.time() - start_time
             logger.error(f"Ошибка при запросе {query}: {str(e)}")
-            return None, elapsed, str(e)
+            return None
 
     def get_recent_news(self, hours: int = 1) -> list:
         """Получить новости за последние N часов"""
@@ -152,222 +191,204 @@ class NewsFetcher:
         from_date = (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
         to_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        logger.info(f"Поиск новостей с {from_date} до {to_date}")
         all_new_articles = []
-
         for query_config in self.queries:
-            query = query_config["query"]
-            lang = query_config["lang"]
-            theme = query_config["theme"]
-
-            data, elapsed, error = self.search_news(query, lang, from_date=from_date, to_date=to_date, max_results=10)
-
+            data = self.search_news(query_config["query"], query_config["lang"], from_date, to_date)
             if data and data.get("articles"):
-                for article in data.get("articles", []):
-                    article_url = article.get("url", "")
-                    if article_url in self.processed_urls:
-                        continue
-
-                    self.processed_urls.add(article_url)
-                    article_info = {
-                        "theme": theme,
-                        "query": query,
-                        "lang": lang,
-                        "title": article.get("title", "N/A"),
-                        "description": article.get("description", "N/A"),
-                        "url": article_url,
-                        "source": article.get("source", {}).get("name", "N/A"),
-                        "publishedAt": article.get("publishedAt", "N/A"),
-                        "image": article.get("image", None)
-                    }
-                    all_new_articles.append(article_info)
-
+                for article in data["articles"]:
+                    url = article.get("url", "")
+                    if url and url not in self.processed_urls:
+                        self.processed_urls.add(url)
+                        all_new_articles.append({
+                            "theme": query_config["theme"],
+                            "lang": query_config["lang"],
+                            "title": article.get("title", ""),
+                            "description": article.get("description", ""),
+                            "url": url,
+                            "source": article.get("source", {}).get("name", ""),
+                            "publishedAt": article.get("publishedAt", "")
+                        })
             time.sleep(0.5)
 
-        logger.info(f"Найдено новых статей: {len(all_new_articles)}")
+        logger.info(f"Новых статей: {len(all_new_articles)}")
         return all_new_articles
 
     def clear_processed_cache(self):
-        """Очистить кэш обработанных URL"""
-        old_count = len(self.processed_urls)
         self.processed_urls.clear()
-        logger.info(f"Очищен кэш обработанных URL: {old_count} записей")
 
 
 # ==================== КЛАСС ДЛЯ TELEGRAM ====================
 class TelegramBot:
-    """Класс для отправки сообщений в Telegram"""
+    """Класс для работы с Telegram API"""
 
-    def __init__(self, bot_token: str, chat_id: str):
+    def __init__(self, bot_token: str, subscriber_manager: SubscriberManager):
         self.bot_token = bot_token
-        self.chat_id = chat_id
+        self.subscriber_manager = subscriber_manager
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
+        self.last_update_id = 0
 
-    def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
-        """Отправить текстовое сообщение"""
-        url = f"{self.base_url}/sendMessage"
-        data = {
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": parse_mode,
-            "disable_web_page_preview": False
-        }
-
+    def get_updates(self) -> list:
+        """Получить обновления от Telegram"""
+        url = f"{self.base_url}/getUpdates?offset={self.last_update_id + 1}&timeout=30"
         try:
-            encoded_data = urllib.parse.urlencode(data).encode('utf-8')
-            request = urllib.request.Request(url, data=encoded_data)
-            with urllib.request.urlopen(request, timeout=10) as response:
+            with urllib.request.urlopen(url, timeout=35) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 if result.get('ok'):
-                    logger.info("Сообщение отправлено в Telegram")
-                    return True
-                else:
-                    logger.error(f"Ошибка Telegram API: {result}")
-                    return False
+                    return result.get('result', [])
         except Exception as e:
-            logger.error(f"Ошибка при отправке в Telegram: {str(e)}")
+            logger.error(f"Ошибка получения обновлений: {str(e)}")
+        return []
+
+    def send_message(self, chat_id: str, text: str) -> bool:
+        """Отправить сообщение"""
+        url = f"{self.base_url}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False
+        }).encode('utf-8')
+
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result.get('ok', False)
+        except Exception as e:
+            logger.error(f"Ошибка отправки в {chat_id}: {str(e)}")
             return False
 
-    def format_article_message(self, article: dict) -> str:
-        """Форматировать статью для Telegram"""
+    def format_article(self, article: dict) -> str:
+        """Форматировать статью"""
+        title = article.get("title_uk", article.get("title", ""))
+        desc = article.get("description_uk", article.get("description", ""))
         theme = article.get("theme", "Новини")
-        title_uk = article.get("title_uk", article.get("title", "Без заголовка"))
-        description_uk = article.get("description_uk", article.get("description", ""))
-        source = article.get("source", "N/A")
+        source = article.get("source", "")
         url = article.get("url", "")
-        published_at = article.get("publishedAt", "N/A")
+        date = article.get("publishedAt", "")
 
-        if published_at != "N/A":
+        if date:
             try:
-                dt = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
-                published_at = dt.strftime("%d.%m.%Y %H:%M")
+                dt = datetime.fromisoformat(date.replace('Z', '+00:00'))
+                date = dt.strftime("%d.%m.%Y %H:%M")
             except:
                 pass
 
-        message = f"""<b>📰 {theme}</b>
+        return f"""<b>📰 {theme}</b>
 
-<b>{title_uk}</b>
+<b>{title}</b>
 
-{description_uk}
+{desc}
 
 <b>Джерело:</b> {source}
-<b>Дата:</b> {published_at}
+<b>Дата:</b> {date}
 
-<a href="{url}">📎 Читати оригінал статті</a>"""
+<a href="{url}">📎 Читати оригінал</a>"""
 
-        return message.strip()
+    def broadcast_articles(self, articles: list):
+        """Разослать статьи всем подписчикам"""
+        subscribers = self.subscriber_manager.get_subscribers()
+        if not subscribers:
+            logger.info("Нет подписчиков для рассылки")
+            return
 
-    def send_article(self, article: dict) -> bool:
-        """Отправить статью в Telegram"""
-        message = self.format_article_message(article)
-        return self.send_message(message)
-
-    def send_articles_batch(self, articles: list) -> int:
-        """Отправить пакет статей"""
-        sent_count = 0
         if not articles:
-            logger.info("Нет новых статей для отправки")
-            return 0
+            logger.info("Нет новых статей для рассылки")
+            return
 
-        header = f"<b>🔔 Знайдено {len(articles)} нових статей</b>"
-        self.send_message(header)
+        logger.info(f"Рассылка {len(articles)} статей для {len(subscribers)} подписчиков")
 
-        for article in articles:
-            if self.send_article(article):
-                sent_count += 1
-            time.sleep(0.5)
+        for chat_id in subscribers:
+            self.send_message(chat_id, f"<b>🔔 Знайдено {len(articles)} нових статей</b>")
+            for article in articles:
+                message = self.format_article(article)
+                self.send_message(chat_id, message)
+                time.sleep(0.5)
+            self.send_message(chat_id, f"<b>✅ Усі новини відправлено</b>")
 
-        summary = f"<b>✅ Відправлено {sent_count} із {len(articles)} статей</b>"
-        self.send_message(summary)
-        logger.info(f"Отправлено {sent_count}/{len(articles)} статей")
-        return sent_count
+    def process_updates(self):
+        """Обработать обновления (команды пользователей)"""
+        updates = self.get_updates()
+        for update in updates:
+            self.last_update_id = update.get('update_id', 0)
+            message = update.get('message', {})
+            chat_id = str(message.get('chat', {}).get('id', ''))
+            text = message.get('text', '')
 
-    def send_error(self, error_message: str) -> bool:
-        """Отправить сообщение об ошибке"""
-        message = f"<b>⚠️ Помилка</b>\n\n{error_message}"
-        return self.send_message(message)
-
-    def test_connection(self) -> bool:
-        """Проверить соединение с Telegram API"""
-        url = f"{self.base_url}/getMe"
-        try:
-            with urllib.request.urlopen(url, timeout=10) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                if result.get('ok'):
-                    bot_info = result.get('result', {})
-                    logger.info(f"Telegram бот подключен: @{bot_info.get('username')}")
-                    return True
+            if text == '/start':
+                if self.subscriber_manager.add_subscriber(chat_id):
+                    self.send_message(chat_id,
+                        "<b>✅ Вітаємо!</b>\n\n"
+                        "Ви підписались на фінансові новини.\n"
+                        "Ви будете отримувати переведені новини кожної години.\n\n"
+                        "Команди:\n"
+                        "/start - Підписатись\n"
+                        "/stop - Відписатись\n"
+                        "/status - Статус підписки"
+                    )
                 else:
-                    logger.error(f"Ошибка подключения к Telegram: {result}")
-                    return False
-        except Exception as e:
-            logger.error(f"Ошибка при проверке подключения: {str(e)}")
-            return False
+                    self.send_message(chat_id, "<b>ℹ️ Ви вже підписані</b>")
+
+            elif text == '/stop':
+                if self.subscriber_manager.remove_subscriber(chat_id):
+                    self.send_message(chat_id, "<b>👋 Ви відписались від новин</b>")
+                else:
+                    self.send_message(chat_id, "<b>ℹ️ Ви не були підписані</b>")
+
+            elif text == '/status':
+                is_subscribed = chat_id in self.subscriber_manager.get_subscribers()
+                status = "✅ Підписано" if is_subscribed else "❌ Не підписано"
+                self.send_message(chat_id, f"<b>Статус:</b> {status}")
 
 
 # ==================== ОСНОВНОЙ КЛАСС БОТА ====================
 class NewsMonitorBot:
-    """Основной класс бота для мониторинга новостей"""
+    """Основной бот"""
 
-    def __init__(self, gnews_api_key: str, telegram_bot_token: str, telegram_chat_id: str):
+    def __init__(self, gnews_api_key: str, telegram_bot_token: str):
+        self.subscriber_manager = SubscriberManager()
         self.news_fetcher = NewsFetcher(gnews_api_key)
         self.translator = Translator()
-        self.telegram_bot = TelegramBot(telegram_bot_token, telegram_chat_id)
-        logger.info("NewsMonitorBot инициализирован")
+        self.telegram_bot = TelegramBot(telegram_bot_token, self.subscriber_manager)
+        self.running = True
 
-    def check_and_send_news(self, hours: int = 1) -> int:
-        """Проверить и отправить новости"""
-        try:
-            logger.info(f"Проверка новостей за последние {hours} час(ов)")
-            articles = self.news_fetcher.get_recent_news(hours=hours)
-
-            if not articles:
-                logger.info("Новых статей не найдено")
-                return 0
-
-            logger.info(f"Найдено {len(articles)} новых статей. Перевод...")
-            translated_articles = []
-
-            for article in articles:
-                try:
-                    translated = self.translator.translate_article(article)
-                    translated_articles.append(translated)
-                except Exception as e:
-                    logger.error(f"Ошибка при переводе: {str(e)}")
-                    translated_articles.append(article)
-
-            logger.info(f"Переведено {len(translated_articles)} статей. Отправка...")
-            sent_count = self.telegram_bot.send_articles_batch(translated_articles)
-            logger.info(f"Отправлено {sent_count} статей")
-            return sent_count
-
-        except Exception as e:
-            error_msg = f"Ошибка при проверке новостей: {str(e)}"
-            logger.error(error_msg)
+    def check_commands_loop(self):
+        """Поток для обработки команд"""
+        logger.info("Запущен обработчик команд")
+        while self.running:
             try:
-                self.telegram_bot.send_error(error_msg)
-            except:
-                pass
-            return 0
+                self.telegram_bot.process_updates()
+            except Exception as e:
+                logger.error(f"Ошибка в обработчике команд: {str(e)}")
+            time.sleep(1)
 
-    def run_continuous(self, interval_minutes: int = 60, check_hours: int = 1):
-        """Непрерывная работа бота"""
-        logger.info(f"Запуск в непрерывном режиме")
-        logger.info(f"Интервал: {interval_minutes} мин, Поиск за: {check_hours} час(ов)")
+    def check_and_send_news(self, hours: int = 1):
+        """Проверить и отправить новости"""
+        logger.info(f"Проверка новостей за {hours} час(ов)...")
+        articles = self.news_fetcher.get_recent_news(hours)
 
-        if not self.telegram_bot.test_connection():
-            logger.error("Не удалось подключиться к Telegram!")
+        if not articles:
             return
 
-        self.telegram_bot.send_message(
-            f"<b>🤖 Бот моніторингу новин запущено!</b>\n\n"
-            f"⏱ Інтервал перевірки: {interval_minutes} хв\n"
-            f"📅 Пошук новин за: {check_hours} год"
-        )
+        logger.info(f"Перевод {len(articles)} статей...")
+        translated = [self.translator.translate_article(a) for a in articles]
+
+        logger.info("Рассылка новостей...")
+        self.telegram_bot.broadcast_articles(translated)
+
+    def run(self):
+        """Главный цикл бота"""
+        if not TELEGRAM_BOT_TOKEN:
+            logger.error("❌ TELEGRAM_BOT_TOKEN не установлен!")
+            return
+
+        logger.info("🤖 Бот запущен")
+        logger.info(f"Подписчиков: {len(self.subscriber_manager.get_subscribers())}")
+
+        # Запускаем обработчик команд в отдельном потоке
+        commands_thread = threading.Thread(target=self.check_commands_loop, daemon=True)
+        commands_thread.start()
 
         iteration = 0
-        interval_seconds = interval_minutes * 60
-
         try:
             while True:
                 iteration += 1
@@ -375,71 +396,28 @@ class NewsMonitorBot:
                 logger.info(f"Итерация #{iteration} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 logger.info(f"{'='*80}")
 
-                try:
-                    sent_count = self.check_and_send_news(hours=check_hours)
-                    logger.info(f"Отправлено статей: {sent_count}")
-                except Exception as e:
-                    logger.error(f"Ошибка: {str(e)}")
+                self.check_and_send_news(hours=CHECK_HOURS)
 
-                if iteration % (24 * (60 // interval_minutes)) == 0:
+                if iteration % 24 == 0:
                     self.news_fetcher.clear_processed_cache()
 
-                logger.info(f"Следующая проверка через {interval_minutes} минут...")
-                time.sleep(interval_seconds)
+                logger.info(f"Следующая проверка через {CHECK_INTERVAL_MINUTES} мин...")
+                time.sleep(CHECK_INTERVAL_MINUTES * 60)
 
         except KeyboardInterrupt:
-            logger.info("\n\nОстановка бота...")
-            self.telegram_bot.send_message("<b>🛑 Бот зупинено</b>")
-        except Exception as e:
-            error_msg = f"Критическая ошибка: {str(e)}"
-            logger.error(error_msg)
-            try:
-                self.telegram_bot.send_error(error_msg)
-            except:
-                pass
+            logger.info("\n\n👋 Остановка бота...")
+            self.running = False
 
 
 # ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
 def main():
-    """Главная функция запуска"""
     print("="*80)
-    print(" "*20 + "БОТ МОНИТОРИНГА ФИНАНСОВЫХ НОВОСТЕЙ")
+    print(" "*15 + "БОТ МОНИТОРИНГА ФИНАНСОВЫХ НОВОСТЕЙ")
     print("="*80)
     print(f"\nВремя запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    # Проверка конфигурации
-    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN":
-        logger.error("❌ TELEGRAM_BOT_TOKEN не настроен!")
-        logger.error("Установите переменную окружения TELEGRAM_BOT_TOKEN")
-        sys.exit(1)
-
-    if not TELEGRAM_CHAT_ID or TELEGRAM_CHAT_ID == "YOUR_TELEGRAM_CHAT_ID":
-        logger.error("❌ TELEGRAM_CHAT_ID не настроен!")
-        logger.error("Установите переменную окружения TELEGRAM_CHAT_ID")
-        sys.exit(1)
-
-    logger.info("✅ Конфигурация валидна")
-    logger.info(f"GNews API Key: {GNEWS_API_KEY[:10]}...")
-    logger.info(f"Telegram Bot Token: {TELEGRAM_BOT_TOKEN[:10]}...")
-    logger.info(f"Telegram Chat ID: {TELEGRAM_CHAT_ID}")
-
-    try:
-        bot = NewsMonitorBot(
-            gnews_api_key=GNEWS_API_KEY,
-            telegram_bot_token=TELEGRAM_BOT_TOKEN,
-            telegram_chat_id=TELEGRAM_CHAT_ID
-        )
-        logger.info("✅ Бот инициализирован")
-
-        # Запуск в непрерывном режиме
-        bot.run_continuous(
-            interval_minutes=CHECK_INTERVAL_MINUTES,
-            check_hours=CHECK_HOURS
-        )
-
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {str(e)}", exc_info=True)
-        sys.exit(1)
+    bot = NewsMonitorBot(GNEWS_API_KEY, TELEGRAM_BOT_TOKEN)
+    bot.run()
 
 
 if __name__ == "__main__":
