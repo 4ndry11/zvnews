@@ -14,7 +14,7 @@ import os
 
 
 # ==================== КОНФИГУРАЦИЯ ====================
-GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "8ad6c10d7880908151746a4b48513c4d")
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "60"))
