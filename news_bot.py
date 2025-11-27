@@ -16,10 +16,10 @@ import threading
 
 
 # ==================== КОНФИГУРАЦИЯ ====================
-GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", )
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "60"))
-CHECK_HOURS = int(os.getenv("CHECK_HOURS", "1"))
+CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "180"))
+CHECK_HOURS = int(os.getenv("CHECK_HOURS", "3"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 SUBSCRIBERS_FILE = "subscribers.json"
 
@@ -152,20 +152,172 @@ class NewsFetcher:
         self.base_url = "https://gnews.io/api/v4"
         self.processed_urls = set()
         self.queries = [
+            # === БАНКРОТСТВО ===
+            # Английский
             {"query": "bankruptcy", "lang": "en", "theme": "Банкрутство"},
+            {"query": "personal bankruptcy", "lang": "en", "theme": "Банкрутство фізичних осіб"},
+            {"query": "business bankruptcy", "lang": "en", "theme": "Банкрутство бізнесу"},
+            {"query": "corporate bankruptcy", "lang": "en", "theme": "Банкрутство компаній"},
+            # Украинский
             {"query": "банкрутство", "lang": "uk", "theme": "Банкрутство"},
+            {"query": "банкрутство фізичних осіб", "lang": "uk", "theme": "Банкрутство фізичних осіб"},
+            {"query": "банкрутство компанії", "lang": "uk", "theme": "Банкрутство бізнесу"},
+            {"query": "банкрутство підприємства", "lang": "uk", "theme": "Банкрутство бізнесу"},
+            # Русский
             {"query": "банкротство", "lang": "ru", "theme": "Банкрутство"},
-            {"query": "banks", "lang": "en", "theme": "Банки"},
-            {"query": "банки", "lang": "uk", "theme": "Банки"},
-            {"query": "банки", "lang": "ru", "theme": "Банки"},
-            {"query": "credits", "lang": "en", "theme": "Кредити"},
-            {"query": "loans", "lang": "en", "theme": "Кредити"},
-            {"query": "кредити", "lang": "uk", "theme": "Кредити"},
-            {"query": "кредиты", "lang": "ru", "theme": "Кредити"},
-            {"query": "legislation", "lang": "en", "theme": "Законодавство"},
-            {"query": "law", "lang": "en", "theme": "Законодавство"},
-            {"query": "законодавство", "lang": "uk", "theme": "Законодавство"},
-            {"query": "законодательство", "lang": "ru", "theme": "Законодавство"},
+            {"query": "банкротство физических лиц", "lang": "ru", "theme": "Банкрутство фізичних осіб"},
+            {"query": "банкротство компании", "lang": "ru", "theme": "Банкрутство бізнесу"},
+            # Немецкий
+            {"query": "insolvenz", "lang": "de", "theme": "Банкрутство"},
+            {"query": "privatinsolvenz", "lang": "de", "theme": "Банкрутство фізичних осіб"},
+            {"query": "firmeninsolvenz", "lang": "de", "theme": "Банкрутство бізнесу"},
+
+            # === РЕСТРУКТУРИЗАЦИЯ ДОЛГОВ ===
+            # Английский
+            {"query": "debt restructuring", "lang": "en", "theme": "Реструктуризація боргів"},
+            {"query": "loan restructuring", "lang": "en", "theme": "Реструктуризація кредитів"},
+            # Украинский
+            {"query": "реструктуризація боргів", "lang": "uk", "theme": "Реструктуризація боргів"},
+            {"query": "реструктуризація кредиту", "lang": "uk", "theme": "Реструктуризація кредитів"},
+            {"query": "реструктуризація заборгованості", "lang": "uk", "theme": "Реструктуризація боргів"},
+            # Русский
+            {"query": "реструктуризация долгов", "lang": "ru", "theme": "Реструктуризація боргів"},
+            {"query": "реструктуризация кредита", "lang": "ru", "theme": "Реструктуризація кредитів"},
+            # Немецкий
+            {"query": "umschuldung", "lang": "de", "theme": "Реструктуризація боргів"},
+            {"query": "schuldenbereinigung", "lang": "de", "theme": "Реструктуризація боргів"},
+
+            # === СУДЕБНЫЕ ПРОЦЕССЫ ===
+            # Английский
+            {"query": "bankruptcy court", "lang": "en", "theme": "Судові справи"},
+            {"query": "insolvency proceedings", "lang": "en", "theme": "Судові справи"},
+            {"query": "bankruptcy case", "lang": "en", "theme": "Судові справи"},
+            # Украинский
+            {"query": "справа про банкрутство", "lang": "uk", "theme": "Судові справи"},
+            {"query": "процедура банкрутства", "lang": "uk", "theme": "Судові справи"},
+            {"query": "господарський суд банкрутство", "lang": "uk", "theme": "Судові справи"},
+            {"query": "арбітражний керуючий", "lang": "uk", "theme": "Судові справи"},
+            # Русский
+            {"query": "дело о банкротстве", "lang": "ru", "theme": "Судові справи"},
+            {"query": "процедура банкротства", "lang": "ru", "theme": "Судові справи"},
+            {"query": "арбитражный управляющий", "lang": "ru", "theme": "Судові справи"},
+            # Немецкий
+            {"query": "insolvenzverfahren", "lang": "de", "theme": "Судові справи"},
+            {"query": "insolvenzgericht", "lang": "de", "theme": "Судові справи"},
+
+            # === ПРОБЛЕМЫ С КРЕДИТАМИ ===
+            # Английский
+            {"query": "consumer debt", "lang": "en", "theme": "Споживчі борги"},
+            {"query": "loan default", "lang": "en", "theme": "Прострочені кредити"},
+            {"query": "mortgage foreclosure", "lang": "en", "theme": "Іпотечні проблеми"},
+            {"query": "credit card debt", "lang": "en", "theme": "Кредитні борги"},
+            {"query": "overdue loan", "lang": "en", "theme": "Прострочені кредити"},
+            # Украинский
+            {"query": "споживчий кредит", "lang": "uk", "theme": "Споживчі борги"},
+            {"query": "прострочений кредит", "lang": "uk", "theme": "Прострочені кредити"},
+            {"query": "заборгованість по кредиту", "lang": "uk", "theme": "Кредитна заборгованість"},
+            {"query": "проблемна іпотека", "lang": "uk", "theme": "Іпотечні проблеми"},
+            {"query": "борг по кредиту", "lang": "uk", "theme": "Кредитні борги"},
+            # Русский
+            {"query": "потребительский кредит", "lang": "ru", "theme": "Споживчі борги"},
+            {"query": "просроченный кредит", "lang": "ru", "theme": "Прострочені кредити"},
+            {"query": "задолженность по кредиту", "lang": "ru", "theme": "Кредитна заборгованість"},
+            {"query": "проблемная ипотека", "lang": "ru", "theme": "Іпотечні проблеми"},
+            # Немецкий
+            {"query": "verbraucherkredit", "lang": "de", "theme": "Споживчі борги"},
+            {"query": "kreditausfall", "lang": "de", "theme": "Прострочені кредити"},
+            {"query": "hypothekenschulden", "lang": "de", "theme": "Іпотечні проблеми"},
+
+            # === НЕПЛАТЕЖЕСПОСОБНОСТЬ ===
+            # Английский
+            {"query": "insolvency", "lang": "en", "theme": "Неплатоспроможність"},
+            {"query": "financial distress", "lang": "en", "theme": "Фінансові проблеми"},
+            {"query": "unable to pay debts", "lang": "en", "theme": "Неплатоспроможність"},
+            # Украинский
+            {"query": "неплатоспроможність", "lang": "uk", "theme": "Неплатоспроможність"},
+            {"query": "неплатоспроможність боржника", "lang": "uk", "theme": "Неплатоспроможність"},
+            {"query": "фінансові труднощі", "lang": "uk", "theme": "Фінансові проблеми"},
+            # Русский
+            {"query": "неплатежеспособность", "lang": "ru", "theme": "Неплатоспроможність"},
+            {"query": "неплатежеспособность должника", "lang": "ru", "theme": "Неплатоспроможність"},
+            {"query": "финансовые трудности", "lang": "ru", "theme": "Фінансові проблеми"},
+            # Немецкий
+            {"query": "zahlungsunfähigkeit", "lang": "de", "theme": "Неплатоспроможність"},
+            {"query": "überschuldung", "lang": "de", "theme": "Неплатоспроможність"},
+
+            # === КОЛЛЕКТОРЫ И ВЗЫСКАНИЕ ===
+            # Английский
+            {"query": "debt collection", "lang": "en", "theme": "Стягнення боргів"},
+            {"query": "debt collector", "lang": "en", "theme": "Колектори"},
+            {"query": "debt recovery", "lang": "en", "theme": "Стягнення боргів"},
+            # Украинский
+            {"query": "колекторське агентство", "lang": "uk", "theme": "Колектори"},
+            {"query": "стягнення боргів", "lang": "uk", "theme": "Стягнення боргів"},
+            {"query": "колектори", "lang": "uk", "theme": "Колектори"},
+            # Русский
+            {"query": "коллекторское агентство", "lang": "ru", "theme": "Колектори"},
+            {"query": "взыскание долгов", "lang": "ru", "theme": "Стягнення боргів"},
+            {"query": "коллекторы", "lang": "ru", "theme": "Колектори"},
+            # Немецкий
+            {"query": "inkasso", "lang": "de", "theme": "Колектори"},
+            {"query": "schuldeneintreibung", "lang": "de", "theme": "Стягнення боргів"},
+
+            # === ЛИКВИДАЦИЯ И САНАЦИЯ ===
+            # Английский
+            {"query": "liquidation", "lang": "en", "theme": "Ліквідація"},
+            {"query": "company liquidation", "lang": "en", "theme": "Ліквідація компанії"},
+            {"query": "creditor protection", "lang": "en", "theme": "Захист кредиторів"},
+            {"query": "debt settlement", "lang": "en", "theme": "Врегулювання боргів"},
+            # Украинский
+            {"query": "ліквідація підприємства", "lang": "uk", "theme": "Ліквідація"},
+            {"query": "санація підприємства", "lang": "uk", "theme": "Санація"},
+            {"query": "кредиторська заборгованість", "lang": "uk", "theme": "Борги"},
+            {"query": "мирова угода", "lang": "uk", "theme": "Мирова угода"},
+            # Русский
+            {"query": "ликвидация предприятия", "lang": "ru", "theme": "Ліквідація"},
+            {"query": "санация предприятия", "lang": "ru", "theme": "Санація"},
+            {"query": "кредиторская задолженность", "lang": "ru", "theme": "Борги"},
+            {"query": "мировое соглашение", "lang": "ru", "theme": "Мирова угода"},
+            # Немецкий
+            {"query": "liquidation unternehmen", "lang": "de", "theme": "Ліквідація"},
+            {"query": "gläubigerschutz", "lang": "de", "theme": "Захист кредиторів"},
+
+            # === ФИНАНСОВЫЕ ОБЯЗАТЕЛЬСТВА ===
+            # Английский
+            {"query": "unpaid debts", "lang": "en", "theme": "Несплачені борги"},
+            {"query": "debt burden", "lang": "en", "theme": "Боргове навантаження"},
+            {"query": "creditor claims", "lang": "en", "theme": "Вимоги кредиторів"},
+            {"query": "payment default", "lang": "en", "theme": "Неплатежі"},
+            # Украинский
+            {"query": "несплачені борги", "lang": "uk", "theme": "Несплачені борги"},
+            {"query": "боргове навантаження", "lang": "uk", "theme": "Боргове навантаження"},
+            {"query": "вимоги кредиторів", "lang": "uk", "theme": "Вимоги кредиторів"},
+            {"query": "прострочена заборгованість", "lang": "uk", "theme": "Прострочені борги"},
+            # Русский
+            {"query": "неоплаченные долги", "lang": "ru", "theme": "Несплачені борги"},
+            {"query": "долговая нагрузка", "lang": "ru", "theme": "Боргове навантаження"},
+            {"query": "требования кредиторов", "lang": "ru", "theme": "Вимоги кредиторів"},
+            {"query": "просроченная задолженность", "lang": "ru", "theme": "Прострочені борги"},
+            # Немецкий
+            {"query": "unbezahlte schulden", "lang": "de", "theme": "Несплачені борги"},
+            {"query": "schuldenlast", "lang": "de", "theme": "Боргове навантаження"},
+
+            # === БАНКОВСКИЕ КРЕДИТЫ И ПРОБЛЕМЫ ===
+            # Английский
+            {"query": "bank loan problems", "lang": "en", "theme": "Проблеми з банківськими кредитами"},
+            {"query": "non performing loan", "lang": "en", "theme": "Проблемні кредити"},
+            {"query": "loan write off", "lang": "en", "theme": "Списання кредитів"},
+            # Украинский
+            {"query": "проблемний кредит банку", "lang": "uk", "theme": "Проблемні кредити"},
+            {"query": "списання боргу", "lang": "uk", "theme": "Списання боргів"},
+            {"query": "реструктуризація іпотеки", "lang": "uk", "theme": "Реструктуризація іпотеки"},
+            # Русский
+            {"query": "проблемный кредит банка", "lang": "ru", "theme": "Проблемні кредити"},
+            {"query": "списание долга", "lang": "ru", "theme": "Списання боргів"},
+            {"query": "реструктуризация ипотеки", "lang": "ru", "theme": "Реструктуризація іпотеки"},
+            # Немецкий
+            {"query": "problemkredit", "lang": "de", "theme": "Проблемні кредити"},
+            {"query": "kreditabschreibung", "lang": "de", "theme": "Списання кредитів"},
         ]
 
     def search_news(self, query: str, lang: str, from_date: str = None, to_date: str = None, max_results: int = 10):
