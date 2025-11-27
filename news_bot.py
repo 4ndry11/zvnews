@@ -18,8 +18,8 @@ import threading
 # ==================== КОНФИГУРАЦИЯ ====================
 GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "180"))
-CHECK_HOURS = int(os.getenv("CHECK_HOURS", "3"))
+CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES"))
+CHECK_HOURS = int(os.getenv("CHECK_HOURS"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 SUBSCRIBERS_FILE = "subscribers.json"
 
@@ -386,7 +386,10 @@ class TelegramBot:
             with urllib.request.urlopen(url, timeout=35) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 if result.get('ok'):
-                    return result.get('result', [])
+                    updates = result.get('result', [])
+                    if updates:
+                        logger.info(f"📨 Получено обновлений: {len(updates)}")
+                    return updates
         except Exception as e:
             logger.error(f"Ошибка получения обновлений: {str(e)}")
         return []
@@ -404,9 +407,14 @@ class TelegramBot:
         try:
             with urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=10) as response:
                 result = json.loads(response.read().decode('utf-8'))
-                return result.get('ok', False)
+                success = result.get('ok', False)
+                if success:
+                    logger.info(f"✅ Сообщение отправлено в {chat_id}")
+                else:
+                    logger.error(f"❌ Ошибка отправки в {chat_id}: {result}")
+                return success
         except Exception as e:
-            logger.error(f"Ошибка отправки в {chat_id}: {str(e)}")
+            logger.error(f"❌ Ошибка отправки в {chat_id}: {str(e)}")
             return False
 
     def format_article(self, article: dict) -> str:
@@ -465,30 +473,38 @@ class TelegramBot:
             message = update.get('message', {})
             chat_id = str(message.get('chat', {}).get('id', ''))
             text = message.get('text', '')
+            username = message.get('from', {}).get('username', 'Unknown')
+
+            logger.info(f"👤 Команда от @{username} (ID: {chat_id}): {text}")
 
             if text == '/start':
                 if self.subscriber_manager.add_subscriber(chat_id):
+                    logger.info(f"✅ Новый подписчик: @{username} ({chat_id})")
                     self.send_message(chat_id,
                         "<b>✅ Вітаємо!</b>\n\n"
                         "Ви підписались на фінансові новини.\n"
-                        "Ви будете отримувати переведені новини кожної години.\n\n"
+                        "Ви будете отримувати переведені новини кожні 3 години.\n\n"
                         "Команди:\n"
                         "/start - Підписатись\n"
                         "/stop - Відписатись\n"
                         "/status - Статус підписки"
                     )
                 else:
+                    logger.info(f"ℹ️ Повторная подписка: @{username} ({chat_id})")
                     self.send_message(chat_id, "<b>ℹ️ Ви вже підписані</b>")
 
             elif text == '/stop':
                 if self.subscriber_manager.remove_subscriber(chat_id):
+                    logger.info(f"👋 Отписка: @{username} ({chat_id})")
                     self.send_message(chat_id, "<b>👋 Ви відписались від новин</b>")
                 else:
+                    logger.info(f"ℹ️ Попытка отписки незарегистрированного: @{username} ({chat_id})")
                     self.send_message(chat_id, "<b>ℹ️ Ви не були підписані</b>")
 
             elif text == '/status':
                 is_subscribed = chat_id in self.subscriber_manager.get_subscribers()
                 status = "✅ Підписано" if is_subscribed else "❌ Не підписано"
+                logger.info(f"ℹ️ Проверка статуса: @{username} ({chat_id}) - {status}")
                 self.send_message(chat_id, f"<b>Статус:</b> {status}")
 
 
