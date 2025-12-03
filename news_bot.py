@@ -21,7 +21,16 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES"))
 CHECK_HOURS = int(os.getenv("CHECK_HOURS"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-SUBSCRIBERS_FILE = "subscribers.json"
+
+# Определяем директорию для хранения данных
+# На Render с диском используем /data, локально - текущую директорию
+DATA_DIR = os.getenv("DATA_DIR", ".")
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+SUBSCRIBERS_FILE = os.path.join(DATA_DIR, "subscribers.json")
+SENT_NEWS_FILE = os.path.join(DATA_DIR, "sent_news.json")
+BOT_STATE_FILE = os.path.join(DATA_DIR, "bot_state.json")
 
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
@@ -143,14 +152,118 @@ class Translator:
         return translated
 
 
+# ==================== КЛАСС ДЛЯ ОТСЛЕЖИВАНИЯ ОТПРАВЛЕННЫХ НОВОСТЕЙ ====================
+class SentNewsTracker:
+    """Класс для отслеживания отправленных новостей с умной фильтрацией дублей"""
+
+    def __init__(self, filename: str = SENT_NEWS_FILE):
+        self.filename = filename
+        self.sent_news = self.load_sent_news()
+
+    def load_sent_news(self) -> dict:
+        """Загрузить историю отправленных новостей"""
+        try:
+            if os.path.exists(self.filename):
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    logger.info(f"Загружено {len(data)} отправленных новостей")
+                    return data
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке истории новостей: {str(e)}")
+        return {}
+
+    def save_sent_news(self):
+        """Сохранить историю отправленных новостей"""
+        try:
+            with open(self.filename, 'w', encoding='utf-8') as f:
+                json.dump(self.sent_news, f, ensure_ascii=False, indent=2)
+            logger.info(f"Сохранено {len(self.sent_news)} записей отправленных новостей")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении истории новостей: {str(e)}")
+
+    def is_duplicate(self, url: str, title: str) -> bool:
+        """
+        Проверить, является ли новость дубликатом
+        Проверяем по URL и по похожести заголовка
+        """
+        # Проверка по точному URL
+        if url in self.sent_news:
+            sent_time = self.sent_news[url].get('sent_at')
+            # Если новость была отправлена менее 7 дней назад - это дубль
+            try:
+                sent_dt = datetime.fromisoformat(sent_time)
+                if (datetime.now() - sent_dt).days < 7:
+                    logger.info(f"Дубликат по URL (отправлено {sent_time}): {url}")
+                    return True
+            except:
+                pass
+
+        # Проверка по похожести заголовка (для случаев, когда один URL но разные домены)
+        title_lower = title.lower().strip()
+        for data in self.sent_news.values():
+            existing_title = data.get('title', '').lower().strip()
+            sent_time = data.get('sent_at')
+
+            # Если заголовки очень похожи (более 85% совпадения)
+            if self._similarity(title_lower, existing_title) > 0.85:
+                try:
+                    sent_dt = datetime.fromisoformat(sent_time)
+                    # Если похожая новость была отправлена менее 3 дней назад
+                    if (datetime.now() - sent_dt).days < 3:
+                        logger.info(f"Дубликат по заголовку: '{title}' похож на '{existing_title}'")
+                        return True
+                except:
+                    pass
+
+        return False
+
+    def _similarity(self, s1: str, s2: str) -> float:
+        """Вычислить похожесть двух строк (коэффициент Жаккара)"""
+        if not s1 or not s2:
+            return 0.0
+
+        # Разбиваем на слова
+        words1 = set(s1.split())
+        words2 = set(s2.split())
+
+        # Коэффициент Жаккара: пересечение / объединение
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+
+        return intersection / union if union > 0 else 0.0
+
+    def mark_as_sent(self, url: str, title: str):
+        """Отметить новость как отправленную"""
+        self.sent_news[url] = {
+            'title': title,
+            'sent_at': datetime.now().isoformat()
+        }
+        self.save_sent_news()
+
+    def cleanup_old_entries(self, days: int = 30):
+        """Удалить записи старше N дней"""
+        cutoff_date = datetime.now() - timedelta(days=days)
+        initial_count = len(self.sent_news)
+
+        self.sent_news = {
+            url: data for url, data in self.sent_news.items()
+            if datetime.fromisoformat(data['sent_at']) > cutoff_date
+        }
+
+        removed = initial_count - len(self.sent_news)
+        if removed > 0:
+            logger.info(f"Удалено {removed} старых записей (старше {days} дней)")
+            self.save_sent_news()
+
+
 # ==================== КЛАСС ДЛЯ ПОЛУЧЕНИЯ НОВОСТЕЙ ====================
 class NewsFetcher:
     """Класс для получения новостей из GNews API"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, sent_news_tracker: SentNewsTracker):
         self.api_key = api_key
         self.base_url = "https://gnews.io/api/v4"
-        self.processed_urls = set()
+        self.sent_news_tracker = sent_news_tracker
         self.queries = [
             # === БАНКРОТСТВО ===
             # Английский
@@ -344,29 +457,32 @@ class NewsFetcher:
         to_date = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         all_new_articles = []
+        duplicates_count = 0
+
         for query_config in self.queries:
             data = self.search_news(query_config["query"], query_config["lang"], from_date, to_date)
             if data and data.get("articles"):
                 for article in data["articles"]:
                     url = article.get("url", "")
-                    if url and url not in self.processed_urls:
-                        self.processed_urls.add(url)
+                    title = article.get("title", "")
+
+                    # Проверяем, не является ли это дубликатом
+                    if url and not self.sent_news_tracker.is_duplicate(url, title):
                         all_new_articles.append({
                             "theme": query_config["theme"],
                             "lang": query_config["lang"],
-                            "title": article.get("title", ""),
+                            "title": title,
                             "description": article.get("description", ""),
                             "url": url,
                             "source": article.get("source", {}).get("name", ""),
                             "publishedAt": article.get("publishedAt", "")
                         })
+                    else:
+                        duplicates_count += 1
             time.sleep(0.5)
 
-        logger.info(f"Новых статей: {len(all_new_articles)}")
+        logger.info(f"Новых статей: {len(all_new_articles)}, отфильтровано дублей: {duplicates_count}")
         return all_new_articles
-
-    def clear_processed_cache(self):
-        self.processed_urls.clear()
 
 
 # ==================== КЛАСС ДЛЯ TELEGRAM ====================
@@ -377,7 +493,28 @@ class TelegramBot:
         self.bot_token = bot_token
         self.subscriber_manager = subscriber_manager
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
-        self.last_update_id = 0
+        self.last_update_id = self._load_bot_state()
+
+    def _load_bot_state(self) -> int:
+        """Загрузить состояние бота (last_update_id)"""
+        try:
+            if os.path.exists(BOT_STATE_FILE):
+                with open(BOT_STATE_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    last_id = data.get('last_update_id', 0)
+                    logger.info(f"Загружен last_update_id: {last_id}")
+                    return last_id
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке состояния бота: {str(e)}")
+        return 0
+
+    def _save_bot_state(self):
+        """Сохранить состояние бота (last_update_id)"""
+        try:
+            with open(BOT_STATE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'last_update_id': self.last_update_id}, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении состояния бота: {str(e)}")
 
     def get_updates(self) -> list:
         """Получить обновления от Telegram"""
@@ -444,7 +581,7 @@ class TelegramBot:
 
 <a href="{url}">📎 Читати оригінал</a>"""
 
-    def broadcast_articles(self, articles: list):
+    def broadcast_articles(self, articles: list, sent_news_tracker: SentNewsTracker):
         """Разослать статьи всем подписчикам"""
         subscribers = self.subscriber_manager.get_subscribers()
         if not subscribers:
@@ -457,6 +594,14 @@ class TelegramBot:
 
         logger.info(f"Рассылка {len(articles)} статей для {len(subscribers)} подписчиков")
 
+        # Отмечаем новости как отправленные сразу, чтобы не отправлять их повторно
+        for article in articles:
+            sent_news_tracker.mark_as_sent(
+                article.get('url', ''),
+                article.get('title_uk', article.get('title', ''))
+            )
+
+        # Рассылаем новости всем подписчикам
         for chat_id in subscribers:
             self.send_message(chat_id, f"<b>🔔 Знайдено {len(articles)} нових статей</b>")
             for article in articles:
@@ -470,6 +615,8 @@ class TelegramBot:
         updates = self.get_updates()
         for update in updates:
             self.last_update_id = update.get('update_id', 0)
+            self._save_bot_state()  # Сохраняем после каждого обновления
+
             message = update.get('message', {})
             chat_id = str(message.get('chat', {}).get('id', ''))
             text = message.get('text', '')
@@ -514,7 +661,8 @@ class NewsMonitorBot:
 
     def __init__(self, gnews_api_key: str, telegram_bot_token: str):
         self.subscriber_manager = SubscriberManager()
-        self.news_fetcher = NewsFetcher(gnews_api_key)
+        self.sent_news_tracker = SentNewsTracker()
+        self.news_fetcher = NewsFetcher(gnews_api_key, self.sent_news_tracker)
         self.translator = Translator()
         self.telegram_bot = TelegramBot(telegram_bot_token, self.subscriber_manager)
         self.running = True
@@ -541,7 +689,7 @@ class NewsMonitorBot:
         translated = [self.translator.translate_article(a) for a in articles]
 
         logger.info("Рассылка новостей...")
-        self.telegram_bot.broadcast_articles(translated)
+        self.telegram_bot.broadcast_articles(translated, self.sent_news_tracker)
 
     def run(self):
         """Главный цикл бота"""
@@ -566,8 +714,9 @@ class NewsMonitorBot:
 
                 self.check_and_send_news(hours=CHECK_HOURS)
 
+                # Периодически очищаем старые записи (раз в сутки)
                 if iteration % 24 == 0:
-                    self.news_fetcher.clear_processed_cache()
+                    self.sent_news_tracker.cleanup_old_entries(days=30)
 
                 logger.info(f"Следующая проверка через {CHECK_INTERVAL_MINUTES} мин...")
                 time.sleep(CHECK_INTERVAL_MINUTES * 60)
