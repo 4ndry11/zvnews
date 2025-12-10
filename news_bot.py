@@ -265,25 +265,142 @@ class NewsFetcher:
         self.base_url = "https://gnews.io/api/v4"
         self.sent_news_tracker = sent_news_tracker
         self.queries = [
-            # === БАНКРОТСТВО ===
-            # Английский
+            # === БАНКРОТСТВО (все языки ЕС, США, СНГ) ===
+            # Английский (США, Великобритания, Ирландия)
             {"query": "bankruptcy", "lang": "en", "theme": "Банкрутство"},
             {"query": "personal bankruptcy", "lang": "en", "theme": "Банкрутство фізичних осіб"},
             {"query": "business bankruptcy", "lang": "en", "theme": "Банкрутство бізнесу"},
             {"query": "corporate bankruptcy", "lang": "en", "theme": "Банкрутство компаній"},
-            # Украинский
+            {"query": "chapter 11", "lang": "en", "theme": "Банкрутство"},
+            {"query": "chapter 7", "lang": "en", "theme": "Банкрутство"},
+
+            # Украинский (СНГ)
             {"query": "банкрутство", "lang": "uk", "theme": "Банкрутство"},
             {"query": "банкрутство фізичних осіб", "lang": "uk", "theme": "Банкрутство фізичних осіб"},
             {"query": "банкрутство компанії", "lang": "uk", "theme": "Банкрутство бізнесу"},
             {"query": "банкрутство підприємства", "lang": "uk", "theme": "Банкрутство бізнесу"},
-            # Русский
+
+            # Русский (СНГ)
             {"query": "банкротство", "lang": "ru", "theme": "Банкрутство"},
             {"query": "банкротство физических лиц", "lang": "ru", "theme": "Банкрутство фізичних осіб"},
             {"query": "банкротство компании", "lang": "ru", "theme": "Банкрутство бізнесу"},
-            # Немецкий
+
+            # Немецкий (Германия, Австрия, Швейцария)
             {"query": "insolvenz", "lang": "de", "theme": "Банкрутство"},
             {"query": "privatinsolvenz", "lang": "de", "theme": "Банкрутство фізичних осіб"},
             {"query": "firmeninsolvenz", "lang": "de", "theme": "Банкрутство бізнесу"},
+            {"query": "unternehmensinsolvenz", "lang": "de", "theme": "Банкрутство бізнесу"},
+
+            # Французский (Франция, Бельгия, Люксембург)
+            {"query": "faillite", "lang": "fr", "theme": "Банкрутство"},
+            {"query": "faillite personnelle", "lang": "fr", "theme": "Банкрутство фізичних осіб"},
+            {"query": "faillite entreprise", "lang": "fr", "theme": "Банкрутство бізнесу"},
+            {"query": "dépôt de bilan", "lang": "fr", "theme": "Банкрутство"},
+
+            # Итальянский (Италия)
+            {"query": "fallimento", "lang": "it", "theme": "Банкрутство"},
+            {"query": "fallimento personale", "lang": "it", "theme": "Банкрутство фізичних осіб"},
+            {"query": "fallimento aziendale", "lang": "it", "theme": "Банкрутство бізнесу"},
+            {"query": "insolvenza", "lang": "it", "theme": "Банкрутство"},
+
+            # Испанский (Испания)
+            {"query": "bancarrota", "lang": "es", "theme": "Банкрутство"},
+            {"query": "quiebra personal", "lang": "es", "theme": "Банкрутство фізичних осіб"},
+            {"query": "quiebra empresarial", "lang": "es", "theme": "Банкрутство бізнесу"},
+            {"query": "concurso de acreedores", "lang": "es", "theme": "Банкрутство"},
+
+            # Португальский (Португалия)
+            {"query": "falência", "lang": "pt", "theme": "Банкрутство"},
+            {"query": "insolvência pessoal", "lang": "pt", "theme": "Банкрутство фізичних осіб"},
+            {"query": "falência empresarial", "lang": "pt", "theme": "Банкрутство бізнесу"},
+
+            # Польский (Польша)
+            {"query": "upadłość", "lang": "pl", "theme": "Банкрутство"},
+            {"query": "upadłość konsumencka", "lang": "pl", "theme": "Банкрутство фізичних осіб"},
+            {"query": "upadłość firmy", "lang": "pl", "theme": "Банкрутство бізнесу"},
+
+            # Голландский (Нидерланды, Бельгия)
+            {"query": "faillissement", "lang": "nl", "theme": "Банкрутство"},
+            {"query": "faillissement particulier", "lang": "nl", "theme": "Банкрутство фізичних осіб"},
+            {"query": "faillissement bedrijf", "lang": "nl", "theme": "Банкрутство бізнесу"},
+
+            # Шведский (Швеция)
+            {"query": "konkurs", "lang": "sv", "theme": "Банкрутство"},
+            {"query": "personlig konkurs", "lang": "sv", "theme": "Банкрутство фізичних осіб"},
+            {"query": "företagskonkurs", "lang": "sv", "theme": "Банкрутство бізнесу"},
+
+            # Греческий (Греция, Кипр)
+            {"query": "χρεοκοπία", "lang": "el", "theme": "Банкрутство"},
+            {"query": "προσωπική χρεοκοπία", "lang": "el", "theme": "Банкрутство фізичних осіб"},
+            {"query": "εταιρική χρεοκοπία", "lang": "el", "theme": "Банкрутство бізнесу"},
+
+            # Чешский (Чехия)
+            {"query": "bankrot", "lang": "cs", "theme": "Банкрутство"},
+            {"query": "osobní bankrot", "lang": "cs", "theme": "Банкрутство фізичних осіб"},
+            {"query": "firemní bankrot", "lang": "cs", "theme": "Банкрутство бізнесу"},
+
+            # Румынский (Румыния)
+            {"query": "faliment", "lang": "ro", "theme": "Банкрутство"},
+            {"query": "faliment personal", "lang": "ro", "theme": "Банкрутство фізичних осіб"},
+            {"query": "faliment companie", "lang": "ro", "theme": "Банкрутство бізнесу"},
+
+            # Венгерский (Венгрия)
+            {"query": "csőd", "lang": "hu", "theme": "Банкрутство"},
+            {"query": "magáncsőd", "lang": "hu", "theme": "Банкрутство фізичних осіб"},
+            {"query": "vállalati csőd", "lang": "hu", "theme": "Банкрутство бізнесу"},
+
+            # Датский (Дания)
+            {"query": "konkurs", "lang": "da", "theme": "Банкрутство"},
+            {"query": "personlig konkurs", "lang": "da", "theme": "Банкрутство фізичних осіб"},
+            {"query": "virksomhedskonkurs", "lang": "da", "theme": "Банкрутство бізнесу"},
+
+            # Финский (Финляндия)
+            {"query": "konkurssi", "lang": "fi", "theme": "Банкрутство"},
+            {"query": "henkilökohtainen konkurssi", "lang": "fi", "theme": "Банкрутство фізичних осіб"},
+            {"query": "yrityksen konkurssi", "lang": "fi", "theme": "Банкрутство бізнесу"},
+
+            # Болгарский (Болгария)
+            {"query": "фалит", "lang": "bg", "theme": "Банкрутство"},
+            {"query": "лично фалит", "lang": "bg", "theme": "Банкрутство фізичних осіб"},
+            {"query": "корпоративен фалит", "lang": "bg", "theme": "Банкрутство бізнесу"},
+
+            # Словацкий (Словакия)
+            {"query": "bankrot", "lang": "sk", "theme": "Банкрутство"},
+            {"query": "osobný bankrot", "lang": "sk", "theme": "Банкрутство фізичних осіб"},
+            {"query": "firemný bankrot", "lang": "sk", "theme": "Банкрутство бізнесу"},
+
+            # Хорватский (Хорватия)
+            {"query": "stečaj", "lang": "hr", "theme": "Банкрутство"},
+            {"query": "osobni stečaj", "lang": "hr", "theme": "Банкрутство фізичних осіб"},
+            {"query": "stečaj tvrtke", "lang": "hr", "theme": "Банкрутство бізнесу"},
+
+            # Литовский (Литва)
+            {"query": "bankrotas", "lang": "lt", "theme": "Банкрутство"},
+            {"query": "asmeninis bankrotas", "lang": "lt", "theme": "Банкрутство фізичних осіб"},
+            {"query": "įmonės bankrotas", "lang": "lt", "theme": "Банкрутство бізнесу"},
+
+            # Латышский (Латвия)
+            {"query": "bankrots", "lang": "lv", "theme": "Банкрутство"},
+            {"query": "personīgais bankrots", "lang": "lv", "theme": "Банкрутство фізичних осіб"},
+            {"query": "uzņēmuma bankrots", "lang": "lv", "theme": "Банкрутство бізнесу"},
+
+            # Эстонский (Эстония)
+            {"query": "pankrot", "lang": "et", "theme": "Банкрутство"},
+            {"query": "isiklik pankrot", "lang": "et", "theme": "Банкрутство фізичних осіб"},
+            {"query": "ettevõtte pankrot", "lang": "et", "theme": "Банкрутство бізнесу"},
+
+            # Словенский (Словения)
+            {"query": "stečaj", "lang": "sl", "theme": "Банкрутство"},
+            {"query": "osebni stečaj", "lang": "sl", "theme": "Банкрутство фізичних осіб"},
+            {"query": "stečaj podjetja", "lang": "sl", "theme": "Банкрутство бізнесу"},
+
+            # Белорусский (СНГ)
+            {"query": "банкруцтва", "lang": "be", "theme": "Банкрутство"},
+            {"query": "банкруцтва кампаніі", "lang": "be", "theme": "Банкрутство бізнесу"},
+
+            # Казахский (СНГ)
+            {"query": "банкроттық", "lang": "kk", "theme": "Банкрутство"},
+            {"query": "компания банкроттығы", "lang": "kk", "theme": "Банкрутство бізнесу"},
 
             # === РЕСТРУКТУРИЗАЦИЯ ДОЛГОВ ===
             # Английский
@@ -358,79 +475,6 @@ class NewsFetcher:
             {"query": "zahlungsunfähigkeit", "lang": "de", "theme": "Неплатоспроможність"},
             {"query": "überschuldung", "lang": "de", "theme": "Неплатоспроможність"},
 
-            # === КОЛЛЕКТОРЫ И ВЗЫСКАНИЕ ===
-            # Английский
-            {"query": "debt collection", "lang": "en", "theme": "Стягнення боргів"},
-            {"query": "debt collector", "lang": "en", "theme": "Колектори"},
-            {"query": "debt recovery", "lang": "en", "theme": "Стягнення боргів"},
-            # Украинский
-            {"query": "колекторське агентство", "lang": "uk", "theme": "Колектори"},
-            {"query": "стягнення боргів", "lang": "uk", "theme": "Стягнення боргів"},
-            {"query": "колектори", "lang": "uk", "theme": "Колектори"},
-            # Русский
-            {"query": "коллекторское агентство", "lang": "ru", "theme": "Колектори"},
-            {"query": "взыскание долгов", "lang": "ru", "theme": "Стягнення боргів"},
-            {"query": "коллекторы", "lang": "ru", "theme": "Колектори"},
-            # Немецкий
-            {"query": "inkasso", "lang": "de", "theme": "Колектори"},
-            {"query": "schuldeneintreibung", "lang": "de", "theme": "Стягнення боргів"},
-
-            # === ЛИКВИДАЦИЯ И САНАЦИЯ ===
-            # Английский
-            {"query": "liquidation", "lang": "en", "theme": "Ліквідація"},
-            {"query": "company liquidation", "lang": "en", "theme": "Ліквідація компанії"},
-            {"query": "creditor protection", "lang": "en", "theme": "Захист кредиторів"},
-            {"query": "debt settlement", "lang": "en", "theme": "Врегулювання боргів"},
-            # Украинский
-            {"query": "ліквідація підприємства", "lang": "uk", "theme": "Ліквідація"},
-            {"query": "санація підприємства", "lang": "uk", "theme": "Санація"},
-            {"query": "кредиторська заборгованість", "lang": "uk", "theme": "Борги"},
-            {"query": "мирова угода", "lang": "uk", "theme": "Мирова угода"},
-            # Русский
-            {"query": "ликвидация предприятия", "lang": "ru", "theme": "Ліквідація"},
-            {"query": "санация предприятия", "lang": "ru", "theme": "Санація"},
-            {"query": "кредиторская задолженность", "lang": "ru", "theme": "Борги"},
-            {"query": "мировое соглашение", "lang": "ru", "theme": "Мирова угода"},
-            # Немецкий
-            {"query": "liquidation unternehmen", "lang": "de", "theme": "Ліквідація"},
-            {"query": "gläubigerschutz", "lang": "de", "theme": "Захист кредиторів"},
-
-            # === ФИНАНСОВЫЕ ОБЯЗАТЕЛЬСТВА ===
-            # Английский
-            {"query": "unpaid debts", "lang": "en", "theme": "Несплачені борги"},
-            {"query": "debt burden", "lang": "en", "theme": "Боргове навантаження"},
-            {"query": "creditor claims", "lang": "en", "theme": "Вимоги кредиторів"},
-            {"query": "payment default", "lang": "en", "theme": "Неплатежі"},
-            # Украинский
-            {"query": "несплачені борги", "lang": "uk", "theme": "Несплачені борги"},
-            {"query": "боргове навантаження", "lang": "uk", "theme": "Боргове навантаження"},
-            {"query": "вимоги кредиторів", "lang": "uk", "theme": "Вимоги кредиторів"},
-            {"query": "прострочена заборгованість", "lang": "uk", "theme": "Прострочені борги"},
-            # Русский
-            {"query": "неоплаченные долги", "lang": "ru", "theme": "Несплачені борги"},
-            {"query": "долговая нагрузка", "lang": "ru", "theme": "Боргове навантаження"},
-            {"query": "требования кредиторов", "lang": "ru", "theme": "Вимоги кредиторів"},
-            {"query": "просроченная задолженность", "lang": "ru", "theme": "Прострочені борги"},
-            # Немецкий
-            {"query": "unbezahlte schulden", "lang": "de", "theme": "Несплачені борги"},
-            {"query": "schuldenlast", "lang": "de", "theme": "Боргове навантаження"},
-
-            # === БАНКОВСКИЕ КРЕДИТЫ И ПРОБЛЕМЫ ===
-            # Английский
-            {"query": "bank loan problems", "lang": "en", "theme": "Проблеми з банківськими кредитами"},
-            {"query": "non performing loan", "lang": "en", "theme": "Проблемні кредити"},
-            {"query": "loan write off", "lang": "en", "theme": "Списання кредитів"},
-            # Украинский
-            {"query": "проблемний кредит банку", "lang": "uk", "theme": "Проблемні кредити"},
-            {"query": "списання боргу", "lang": "uk", "theme": "Списання боргів"},
-            {"query": "реструктуризація іпотеки", "lang": "uk", "theme": "Реструктуризація іпотеки"},
-            # Русский
-            {"query": "проблемный кредит банка", "lang": "ru", "theme": "Проблемні кредити"},
-            {"query": "списание долга", "lang": "ru", "theme": "Списання боргів"},
-            {"query": "реструктуризация ипотеки", "lang": "ru", "theme": "Реструктуризація іпотеки"},
-            # Немецкий
-            {"query": "problemkredit", "lang": "de", "theme": "Проблемні кредити"},
-            {"query": "kreditabschreibung", "lang": "de", "theme": "Списання кредитів"},
         ]
 
     def search_news(self, query: str, lang: str, from_date: str = None, to_date: str = None, max_results: int = 10):
